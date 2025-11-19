@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Şonşik Patlatma</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: Arial, sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+        #instruction { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; font-size: 18px; text-shadow: 1px 1px 0 #000; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="ui">Şişirme Seviyesi: <span id="counter">0</span>/10</div>
+    <div id="instruction">Pompaya Tıkla ve Şonşik'i Şişir!</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- AYARLAR ---
+        let clickCount = 0;
+        const maxClicks = 10;
+        let isExploded = false;
+        
+        // Sahne Kurulumu
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x333333); // Koyu gri arka plan (Stadyum havası)
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 5;
+        camera.position.y = 1;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Işıklandırma
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 5, 5);
+        scene.add(dirLight);
+
+        // --- MATERYALLER ---
+        const textureLoader = new THREE.TextureLoader();
+        let soncikMaterial;
+        let mayoMaterial;
+
+        // Şonşik Fotoğrafını Yükle
+        textureLoader.load('soncik.jpg', 
+            (texture) => { // Başarılı yükleme
+                soncikMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+                // Şonşik nesnesi zaten oluşturulmuşsa materyalini güncelle
+                if (soncik) {
+                    // Sadece ön yüzü fotoğraf olsun, diğerleri siyah
+                    soncik.material = [
+                        new THREE.MeshStandardMaterial({ color: 0x000000 }), // Sağ
+                        new THREE.MeshStandardMaterial({ color: 0x000000 }), // Sol
+                        new THREE.MeshStandardMaterial({ color: 0x000000 }), // Üst
+                        new THREE.MeshStandardMaterial({ color: 0x000000 }), // Alt
+                        soncikMaterial,                                  // Ön (Fotoğraf)
+                        new THREE.MeshStandardMaterial({ color: 0x000000 })  // Arka
+                    ];
+                }
+            }, 
+            undefined, // Yükleme ilerlemesi (şu an kullanılmıyor)
+            (err) => { // Hata durumunda
+                console.error("Şonşik fotoğrafı yüklenemedi:", err);
+                soncikMaterial = new THREE.MeshBasicMaterial({ color: 0x444444 }); // Gri renk
+                if (soncik) {
+                     soncik.material = [ // Hata durumunda tüm yüzler gri
+                        new THREE.MeshStandardMaterial({ color: 0x444444 }), 
+                        new THREE.MeshStandardMaterial({ color: 0x444444 }), 
+                        new THREE.MeshStandardMaterial({ color: 0x444444 }), 
+                        new THREE.MeshStandardMaterial({ color: 0x444444 }), 
+                        soncikMaterial,                                  
+                        new THREE.MeshStandardMaterial({ color: 0x444444 })  
+                    ];
+                }
+            }
+        );
+
+        // Mayonez Texture (Opsiyonel)
+        textureLoader.load('mayonez.png',
+            (texture) => { // Başarılı yükleme
+                mayoMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+            },
+            undefined,
+            (err) => { // Hata durumunda
+                console.error("Mayonez fotoğrafı yüklenemedi:", err);
+                mayoMaterial = new THREE.MeshStandardMaterial({ color: 0xFFFF00 }); // Sarı renk
+            }
+        );
+
+
+        // --- KARAKTER (ŞONŞİK) ---
+        // Geçici olarak gri materyal ile başlat, sonra texture yüklenince güncellenecek
+        const tempSoncikMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+        const geometry = new THREE.BoxGeometry(2, 2.5, 0.5); 
+        const initialMaterials = [
+            tempSoncikMaterial, tempSoncikMaterial, tempSoncikMaterial,
+            tempSoncikMaterial, tempSoncikMaterial, tempSoncikMaterial
+        ];
+        const soncik = new THREE.Mesh(geometry, initialMaterials);
+        scene.add(soncik);
+
+        // --- POMPA ---
+        const pumpBaseGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.2, 32);
+        const pumpBaseMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+        const pumpBase = new THREE.Mesh(pumpBaseGeo, pumpBaseMat);
+        pumpBase.position.set(2.5, -1.5, 0);
+        scene.add(pumpBase);
+
+        const pumpStickGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.5, 16);
+        const pumpStickMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+        const pumpStick = new THREE.Mesh(pumpStickGeo, pumpStickMat);
+        pumpStick.position.set(2.5, -0.8, 0);
+        scene.add(pumpStick);
+
+        const pumpHandleGeo = new THREE.BoxGeometry(1.2, 0.2, 0.4);
+        const pumpHandleMat = new THREE.MeshStandardMaterial({ color: 0xff0000 }); // Kırmızı sap
+        const pumpHandle = new THREE.Mesh(pumpHandleGeo, pumpHandleMat);
+        pumpHandle.position.set(2.5, 0, 0);
+        pumpHandle.name = "pompa"; // Tıklama için isim veriyoruz
+        scene.add(pumpHandle);
+
+        // Hortum (Görsel)
+        const hoseCurve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(2.5, -1.5, 0),
+            new THREE.Vector3(1.5, -1.5, 0),
+            new THREE.Vector3(1, -1, 0)
+        ]);
+        const hoseGeo = new THREE.TubeGeometry(hoseCurve, 20, 0.05, 8, false);
+        const hoseMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const hose = new THREE.Mesh(hoseGeo, hoseMat);
+        scene.add(hose);
+
+        // --- MAYONEZ PARÇACIKLARI ---
+        const mayoJars = [];
+        function createExplosion() {
+            const jarGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.3, 8);
+            
+            for(let i=0; i<50; i++) {
+                const jar = new THREE.Mesh(jarGeo, mayoMaterial); // Yüklenen materyali kullan
+                // Başlangıç pozisyonu (mide hizası)
+                jar.position.set(0, -0.5, 0); 
+                
+                // Rastgele fırlama yönü
+                jar.userData.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.5,
+                    (Math.random() - 0.5) * 0.5 + 0.2, // Yukarı doğru da fırlasın
+                    (Math.random() - 0.5) * 0.5 + 0.5 // Kameraya doğru
+                );
+                
+                // Rastgele dönüş
+                jar.userData.rotVel = {
+                    x: Math.random() * 0.2,
+                    y: Math.random() * 0.2
+                };
+
+                scene.add(jar);
+                mayoJars.push(jar);
+            }
+        }
+
+        // --- SES FONKSİYONLARI (Tarayıcı Sesi) ---
+        // Erkek sesi tonuna yakın pitch ve ağlamaklı hız
+        function speak(text, pitch = 0.6, rate = 0.5) { 
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'tr-TR';
+                utterance.pitch = pitch; 
+                utterance.rate = rate;   
+                
+                // Eğer daha erkek veya ağlamaklı bir ses tonu bulursak
+                const voices = window.speechSynthesis.getVoices();
+                const turkishMaleVoice = voices.find(voice => voice.lang === 'tr-TR' && voice.name.includes('Male')); // 'Male' geçen bir isim arıyoruz
+                if (turkishMaleVoice) {
+                    utterance.voice = turkishMaleVoice;
+                } else { // Yoksa varsayılan sesi kullan, ancak pitch ve rate ayarlarımız geçerli olur
+                     console.warn("Türkçe erkek sesi bulunamadı, varsayılan ses kullanılacak.");
+                }
+
+                window.speechSynthesis.speak(utterance);
+            } else {
+                console.warn("Speech Synthesis API desteklenmiyor.");
+            }
+        }
+
+        function playPopSound() {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.value = 100;
+            oscillator.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.5);
+        }
+
+        // --- ETKİLEŞİM ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        window.addEventListener('click', onMouseClick, false);
+
+        function onMouseClick(event) {
+            if (isExploded) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects([pumpHandle]);
+
+            if (intersects.length > 0) {
+                // Pompaya basıldı!
+                pumpHandle.position.y = -0.5; // Görsel olarak aşağı in
+                setTimeout(() => { pumpHandle.position.y = 0; }, 100); // Geri kalk
+
+                clickCount++;
+                document.getElementById('counter').innerText = clickCount;
+
+                // Şonşik'i Şişir
+                const scale = 1 + (clickCount * 0.15); // Biraz daha fazla şişirme oranı
+                soncik.scale.set(scale, scale, scale);
+
+                if (clickCount < maxClicks) {
+                    // Ağlamaklı ses (daha düşük pitch ve hız)
+                    speak("Her şey evlatlarım için..."); 
+                } else {
+                    // PATLAMA ANI
+                    isExploded = true;
+                    playPopSound();
+                    scene.remove(soncik); // Adam kaybolur
+                    createExplosion(); // Mayonezler çıkar
+                    
+                    document.getElementById('instruction').innerText = "PATLADI! Heinz Mayonezleri Döküldü!";
+                    
+                    // Final Konuşması sırası: önce "Her şey evlatlarım için", sonra "Şonşiğim"
+                    speak("Her şey evlatlarım için...", 0.6, 0.4); // Biraz daha yavaş ve ağlamaklı
+                    setTimeout(() => {
+                        speak("Şonşik... Şonşiğim...", 0.6, 0.3); // Daha da yavaş ve acıklı
+                    }, 2000); // İlk cümleden 2 saniye sonra
+                }
+            }
+        }
+
+        // --- ANİMASYON DÖNGÜSÜ ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isExploded) {
+                mayoJars.forEach(jar => {
+                    jar.position.add(jar.userData.velocity);
+                    jar.rotation.x += jar.userData.rotVel.x;
+                    jar.rotation.y += jar.userData.rotVel.y;
+                    jar.userData.velocity.y -= 0.01; // Yerçekimi
+                });
+            } else {
+                soncik.rotation.z = Math.sin(Date.now() * 0.002) * 0.05;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Pencere boyutu değişirse
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Tüm sesleri yüklemek için bir kere çağır, böylece tarayıcı izin verir
+        window.speechSynthesis.getVoices();
+    </script>
+</body>
+</html>
