@@ -2,13 +2,14 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; img-src * data: blob: 'unsafe-inline';">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>Şonşik Patlatma</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: Arial, sans-serif; }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; user-select: none;}
-        #instruction { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; font-size: 18px; text-shadow: 1px 1px 0 #000; pointer-events: none; user-select: none;}
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; }
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: sans-serif; user-select: none; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
+        #instruction { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; font-size: 18px; text-shadow: 1px 1px 0 #000; pointer-events: none; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; font-weight: bold; background: rgba(0,0,0,0.5); padding: 20px; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -19,191 +20,171 @@
     <script type="module">
         import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
 
-        // --- DEĞİŞKENLER ---
+        // Değişkenler
         let clickCount = 0;
         const maxClicks = 10;
         let isExploded = false;
         let pumpSound, finalSound;
+        let soncikMesh, mayoTexture;
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const pumpGroup = new THREE.Group();
+        let pumpHandle;
 
-        // --- SESLERİ GÜVENLİ YÜKLE ---
-        try {
+        // Başlangıç
+        init();
+        animate();
+
+        function init() {
+            // Sahne Ayarları
+            scene.background = new THREE.Color(0x333333);
+            camera.position.z = 6;
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Işıklar
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 5, 5);
+            scene.add(dirLight);
+
+            // Sesleri Yükle
             pumpSound = new Audio('ses1.m4a');
             finalSound = new Audio('ses2.m4a');
-        } catch(e) { console.log("Ses hatası:", e); }
 
-        // --- SAHNE KURULUMU ---
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x333333);
+            // Texture Yükleyici
+            const textureLoader = new THREE.TextureLoader();
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.z = 6; 
-        camera.position.y = 0;
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        // --- IŞIK ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-        scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(5, 5, 5);
-        scene.add(dirLight);
-
-        // --- MATERYALLER ---
-        const textureLoader = new THREE.TextureLoader();
-        let soncikMesh;
-        let mayoTexture;
-
-        // 1. Şonşik Resmi ve Modeli
-        textureLoader.load('soncik.jpg', 
-            (texture) => {
+            // 1. Şonşik Resmi
+            textureLoader.load('soncik.jpg', (texture) => {
                 const geometry = new THREE.SphereGeometry(2, 32, 32);
                 const material = new THREE.MeshStandardMaterial({ map: texture });
                 soncikMesh = new THREE.Mesh(geometry, material);
                 scene.add(soncikMesh);
-                document.getElementById('loading').style.display = 'none'; // Yüklendi yazısını kaldır
-            },
-            undefined,
-            (err) => {
-                console.error("Resim hatası:", err);
-                // Resim yoksa gri top koy
-                const geometry = new THREE.SphereGeometry(2, 32, 32);
-                const material = new THREE.MeshStandardMaterial({ color: 0x888888 });
-                soncikMesh = new THREE.Mesh(geometry, material);
-                scene.add(soncikMesh);
-                document.getElementById('loading').innerText = "Resim Bulunamadı (soncik.jpg)";
-            }
-        );
+                document.getElementById('loading').style.display = 'none';
+            }, undefined, (err) => {
+                console.error("Resim hatası", err);
+                document.getElementById('loading').innerText = "HATA: soncik.jpg bulunamadı";
+            });
 
-        // 2. Mayonez Resmi
-        textureLoader.load('mayonez.png', (tex) => { mayoTexture = tex; });
+            // 2. Mayonez Resmi
+            textureLoader.load('mayonez.png', (t) => { mayoTexture = t; });
 
-        // --- POMPA MODELİ ---
-        const pumpGroup = new THREE.Group();
-        
-        const pumpBase = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 0.3, 32), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-        pumpBase.position.y = -2;
-        pumpGroup.add(pumpBase);
+            // Pompa Modeli
+            createPump();
 
-        const pumpBody = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.5, 16), new THREE.MeshStandardMaterial({ color: 0x666666 }));
-        pumpBody.position.y = -0.8;
-        pumpGroup.add(pumpBody);
+            // Event Listener
+            window.addEventListener('click', onMouseClick);
+            window.addEventListener('resize', onWindowResize);
+        }
 
-        const pumpHandle = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 0.5), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
-        pumpHandle.position.y = 0.5;
-        pumpHandle.name = "pompa";
-        pumpGroup.add(pumpHandle);
+        function createPump() {
+            const matGray = new THREE.MeshStandardMaterial({ color: 0x444444 });
+            const matRed = new THREE.MeshStandardMaterial({ color: 0xff0000 });
 
-        pumpGroup.position.set(3.5, -1, 0);
-        scene.add(pumpGroup);
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 0.3, 32), matGray);
+            base.position.y = -2;
+            pumpGroup.add(base);
 
-        // Hortum
-        const hoseCurve = new THREE.CatmullRomCurve3([
-            new THREE.Vector3(3.3, -1.8, 0),
-            new THREE.Vector3(2.5, -2, 0),
-            new THREE.Vector3(0, -2, 0)
-        ]);
-        const hose = new THREE.Mesh(new THREE.TubeGeometry(hoseCurve, 20, 0.08, 8, false), new THREE.MeshStandardMaterial({ color: 0x111111 }));
-        scene.add(hose);
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.5, 16), new THREE.MeshStandardMaterial({ color: 0x888888 }));
+            body.position.y = -0.8;
+            pumpGroup.add(body);
 
-        // --- PATLAMA EFEKTİ ---
-        const mayoJars = [];
+            pumpHandle = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 0.5), matRed);
+            pumpHandle.position.y = 0.5;
+            pumpHandle.name = "pompa";
+            pumpGroup.add(pumpHandle);
+
+            pumpGroup.position.set(3.5, -1, 0);
+            scene.add(pumpGroup);
+
+            // Hortum
+            const curve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(3.3, -1.8, 0),
+                new THREE.Vector3(2.5, -2, 0),
+                new THREE.Vector3(0, -2, 0)
+            ]);
+            const hose = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.08, 8, false), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+            scene.add(hose);
+        }
+
         function createExplosion() {
-            const jarGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 12);
-            const jarMat = mayoTexture ? new THREE.MeshBasicMaterial({ map: mayoTexture }) : new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
-
-            for(let i=0; i<60; i++) {
-                const jar = new THREE.Mesh(jarGeo, jarMat);
-                jar.userData.velocity = new THREE.Vector3((Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5+1);
-                jar.userData.rotVel = { x: Math.random()*0.3, y: Math.random()*0.3 };
-                scene.add(jar);
-                mayoJars.push(jar);
+            const geo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 12);
+            const mat = mayoTexture ? new THREE.MeshBasicMaterial({ map: mayoTexture, transparent:true }) : new THREE.MeshBasicMaterial({ color: 0xffff00 });
+            
+            for(let i=0; i<50; i++) {
+                const m = new THREE.Mesh(geo, mat);
+                m.userData = {
+                    vel: new THREE.Vector3((Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5, (Math.random()-0.5)*2+1),
+                    rot: { x: Math.random()*0.2, y: Math.random()*0.2 }
+                };
+                scene.add(m);
+                mayoJars.push(m);
             }
         }
+        
+        const mayoJars = [];
 
-        function playPopSound() {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.5);
-        }
-
-        // --- TIKLAMA OLAYI ---
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
-
-        window.addEventListener('click', (event) => {
-            if (isExploded) return;
+        function onMouseClick(event) {
+            if(isExploded) return;
 
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects([pumpHandle]);
 
             if (intersects.length > 0) {
-                // Pompa Animasyonu
+                // Animasyon
                 pumpHandle.position.y = -0.3;
-                setTimeout(() => { pumpHandle.position.y = 0.5; }, 100);
+                setTimeout(() => pumpHandle.position.y = 0.5, 100);
 
                 clickCount++;
                 document.getElementById('counter').innerText = clickCount;
 
-                // Şonşik Büyüme
                 if(soncikMesh) {
                     const s = 1 + (clickCount * 0.2);
                     soncikMesh.scale.set(s, s, s);
-                    soncikMesh.material.color.setHSL(0, 1, 1 - (clickCount * 0.04));
+                    soncikMesh.material.color.setHSL(0, 1, 1 - (clickCount * 0.05));
                 }
 
                 if (clickCount < maxClicks) {
-                    if(pumpSound) { pumpSound.currentTime = 0; pumpSound.play().catch(()=>{}); }
+                    if(pumpSound) { pumpSound.currentTime=0; pumpSound.play().catch(()=>{}); }
                 } else {
                     // PATLAMA
                     isExploded = true;
                     if(pumpSound) pumpSound.pause();
                     if(soncikMesh) scene.remove(soncikMesh);
-                    
-                    playPopSound();
                     createExplosion();
-                    
                     document.getElementById('instruction').innerText = "PATLADI! Heinz Mayonezleri Döküldü!";
                     setTimeout(() => { if(finalSound) finalSound.play().catch(()=>{}); }, 500);
                 }
             }
-        });
+        }
 
-        // --- DÖNGÜ ---
         function animate() {
             requestAnimationFrame(animate);
-            if (!isExploded) {
-                if(soncikMesh) soncikMesh.rotation.y = Math.sin(Date.now() * 0.001) * 0.2;
-            } else {
-                mayoJars.forEach(j => {
-                    j.position.add(j.userData.velocity);
-                    j.rotation.x += j.userData.rotVel.x;
-                    j.rotation.y += j.userData.rotVel.y;
-                    j.userData.velocity.y -= 0.02;
+            
+            if(!isExploded && soncikMesh) {
+                soncikMesh.rotation.y = Math.sin(Date.now() * 0.001) * 0.2;
+            } else if(isExploded) {
+                mayoJars.forEach(p => {
+                    p.position.add(p.userData.vel);
+                    p.rotation.x += p.userData.rot.x;
+                    p.userData.vel.y -= 0.02;
                 });
             }
             renderer.render(scene, camera);
         }
-        animate();
 
-        // Resize
-        window.addEventListener('resize', () => {
+        function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-
+        }
     </script>
 </body>
 </html>
