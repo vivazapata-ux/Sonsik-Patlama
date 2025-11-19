@@ -2,35 +2,36 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval'; img-src * data: blob: 'unsafe-inline';">
     <title>Şonşik Patlatma</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: Arial, sans-serif; }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; }
-        #instruction { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; font-size: 18px; text-shadow: 1px 1px 0 #000; pointer-events: none; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; pointer-events: none; user-select: none;}
+        #instruction { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; font-size: 18px; text-shadow: 1px 1px 0 #000; pointer-events: none; user-select: none;}
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; }
     </style>
 </head>
 <body>
     <div id="ui">Şişirme Seviyesi: <span id="counter">0</span>/10</div>
     <div id="instruction">Pompaya Tıkla ve Şonşik'i Şişir!</div>
+    <div id="loading">Yükleniyor...</div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
 
-    <script>
-        // --- AYARLAR ---
+        // --- DEĞİŞKENLER ---
         let clickCount = 0;
         const maxClicks = 10;
         let isExploded = false;
-        
-        // --- SES DOSYALARI ---
-        // ses1.m4a: "Her şey evlatlarım için"
-        // ses2.m4a: "Şonşik... Şonşiğim..."
-        const pumpSound = new Audio('ses1.m4a'); 
-        const finalSound = new Audio('ses2.m4a');
-        
-        pumpSound.volume = 1.0;
-        finalSound.volume = 1.0;
+        let pumpSound, finalSound;
 
-        // Sahne Kurulumu
+        // --- SESLERİ GÜVENLİ YÜKLE ---
+        try {
+            pumpSound = new Audio('ses1.m4a');
+            finalSound = new Audio('ses2.m4a');
+        } catch(e) { console.log("Ses hatası:", e); }
+
+        // --- SAHNE KURULUMU ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x333333);
 
@@ -42,74 +43,167 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Işıklandırma
+        // --- IŞIK ---
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
         dirLight.position.set(5, 5, 5);
         scene.add(dirLight);
 
-        // --- MATERYAL & KARAKTER ---
+        // --- MATERYALLER ---
         const textureLoader = new THREE.TextureLoader();
+        let soncikMesh;
         let mayoTexture;
 
-        // KÜRE GEOMETRİSİ (Yuvarlak Şonşik)
-        const geometry = new THREE.SphereGeometry(2, 32, 32); 
-        const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
-        const soncik = new THREE.Mesh(geometry, material);
-        scene.add(soncik);
+        // 1. Şonşik Resmi ve Modeli
+        textureLoader.load('soncik.jpg', 
+            (texture) => {
+                const geometry = new THREE.SphereGeometry(2, 32, 32);
+                const material = new THREE.MeshStandardMaterial({ map: texture });
+                soncikMesh = new THREE.Mesh(geometry, material);
+                scene.add(soncikMesh);
+                document.getElementById('loading').style.display = 'none'; // Yüklendi yazısını kaldır
+            },
+            undefined,
+            (err) => {
+                console.error("Resim hatası:", err);
+                // Resim yoksa gri top koy
+                const geometry = new THREE.SphereGeometry(2, 32, 32);
+                const material = new THREE.MeshStandardMaterial({ color: 0x888888 });
+                soncikMesh = new THREE.Mesh(geometry, material);
+                scene.add(soncikMesh);
+                document.getElementById('loading').innerText = "Resim Bulunamadı (soncik.jpg)";
+            }
+        );
 
-        // Fotoğrafı yükle
-        textureLoader.load('soncik.jpg', (texture) => {
-            soncik.material = new THREE.MeshStandardMaterial({ map: texture });
-        });
+        // 2. Mayonez Resmi
+        textureLoader.load('mayonez.png', (tex) => { mayoTexture = tex; });
 
-        // Mayonez
-        textureLoader.load('mayonez.png', (texture) => {
-            mayoTexture = texture;
-        });
-
-        // --- POMPA ---
+        // --- POMPA MODELİ ---
         const pumpGroup = new THREE.Group();
         
-        const pumpBase = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.6, 0.8, 0.3, 32),
-            new THREE.MeshStandardMaterial({ color: 0x333333 })
-        );
+        const pumpBase = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 0.3, 32), new THREE.MeshStandardMaterial({ color: 0x222222 }));
         pumpBase.position.y = -2;
         pumpGroup.add(pumpBase);
 
-        const pumpBody = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.2, 0.2, 2.5, 16),
-            new THREE.MeshStandardMaterial({ color: 0x888888 })
-        );
+        const pumpBody = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.5, 16), new THREE.MeshStandardMaterial({ color: 0x666666 }));
         pumpBody.position.y = -0.8;
         pumpGroup.add(pumpBody);
 
-        const pumpHandle = new THREE.Mesh(
-            new THREE.BoxGeometry(1.5, 0.2, 0.5),
-            new THREE.MeshStandardMaterial({ color: 0xff0000 })
-        );
+        const pumpHandle = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 0.5), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
         pumpHandle.position.y = 0.5;
         pumpHandle.name = "pompa";
         pumpGroup.add(pumpHandle);
 
-        pumpGroup.position.set(3.5, -1, 0); 
+        pumpGroup.position.set(3.5, -1, 0);
         scene.add(pumpGroup);
 
         // Hortum
         const hoseCurve = new THREE.CatmullRomCurve3([
             new THREE.Vector3(3.3, -1.8, 0),
             new THREE.Vector3(2.5, -2, 0),
-            new THREE.Vector3(0, -2, 0) 
+            new THREE.Vector3(0, -2, 0)
         ]);
-        const hose = new THREE.Mesh(
-            new THREE.TubeGeometry(hoseCurve, 20, 0.08, 8, false),
-            new THREE.MeshStandardMaterial({ color: 0x111111 })
-        );
+        const hose = new THREE.Mesh(new THREE.TubeGeometry(hoseCurve, 20, 0.08, 8, false), new THREE.MeshStandardMaterial({ color: 0x111111 }));
         scene.add(hose);
 
         // --- PATLAMA EFEKTİ ---
         const mayoJars = [];
         function createExplosion() {
-            const jarGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 12
+            const jarGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.4, 12);
+            const jarMat = mayoTexture ? new THREE.MeshBasicMaterial({ map: mayoTexture }) : new THREE.MeshStandardMaterial({ color: 0xFFFF00 });
+
+            for(let i=0; i<60; i++) {
+                const jar = new THREE.Mesh(jarGeo, jarMat);
+                jar.userData.velocity = new THREE.Vector3((Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5, (Math.random()-0.5)*1.5+1);
+                jar.userData.rotVel = { x: Math.random()*0.3, y: Math.random()*0.3 };
+                scene.add(jar);
+                mayoJars.push(jar);
+            }
+        }
+
+        function playPopSound() {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        }
+
+        // --- TIKLAMA OLAYI ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        window.addEventListener('click', (event) => {
+            if (isExploded) return;
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects([pumpHandle]);
+
+            if (intersects.length > 0) {
+                // Pompa Animasyonu
+                pumpHandle.position.y = -0.3;
+                setTimeout(() => { pumpHandle.position.y = 0.5; }, 100);
+
+                clickCount++;
+                document.getElementById('counter').innerText = clickCount;
+
+                // Şonşik Büyüme
+                if(soncikMesh) {
+                    const s = 1 + (clickCount * 0.2);
+                    soncikMesh.scale.set(s, s, s);
+                    soncikMesh.material.color.setHSL(0, 1, 1 - (clickCount * 0.04));
+                }
+
+                if (clickCount < maxClicks) {
+                    if(pumpSound) { pumpSound.currentTime = 0; pumpSound.play().catch(()=>{}); }
+                } else {
+                    // PATLAMA
+                    isExploded = true;
+                    if(pumpSound) pumpSound.pause();
+                    if(soncikMesh) scene.remove(soncikMesh);
+                    
+                    playPopSound();
+                    createExplosion();
+                    
+                    document.getElementById('instruction').innerText = "PATLADI! Heinz Mayonezleri Döküldü!";
+                    setTimeout(() => { if(finalSound) finalSound.play().catch(()=>{}); }, 500);
+                }
+            }
+        });
+
+        // --- DÖNGÜ ---
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!isExploded) {
+                if(soncikMesh) soncikMesh.rotation.y = Math.sin(Date.now() * 0.001) * 0.2;
+            } else {
+                mayoJars.forEach(j => {
+                    j.position.add(j.userData.velocity);
+                    j.rotation.x += j.userData.rotVel.x;
+                    j.rotation.y += j.userData.rotVel.y;
+                    j.userData.velocity.y -= 0.02;
+                });
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
